@@ -19,6 +19,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace NmeaParser
@@ -55,15 +56,15 @@ namespace NmeaParser
 			m_stream = new BufferedStream(sr, m_readSpeed);
 			return m_stream;
 #else
-		protected override Task<System.IO.Stream> OpenStreamAsync()
+		protected override Task<Stream> OpenStreamAsync()
 		{
-			StreamReader sr = System.IO.File.OpenText(m_filename);
+			StreamReader sr = File.OpenText(m_filename);
 			m_stream = new BufferedStream(sr, m_readSpeed);
 			return Task.FromResult<Stream>(m_stream);
 #endif
 		}
 
-		protected override Task CloseStreamAsync(System.IO.Stream stream)
+		protected override Task CloseStreamAsync(Stream stream)
 		{
 			m_stream.Dispose();
 			return Task.FromResult(true);
@@ -75,12 +76,12 @@ namespace NmeaParser
 		{
 			StreamReader m_sr;
 			byte[] buffer = new byte[0];
-			System.Threading.Timer timer;
+			Timer timer;
 			object lockObj = new object();
 			public BufferedStream(StreamReader stream, int readSpeed)
 			{
 				m_sr = stream;
-				timer = new System.Threading.Timer(OnRead, null, 0, readSpeed); //add a new line to buffer every 100 ms
+				timer = new Timer(OnRead, null, 0, readSpeed); //add a new line to buffer every 100 ms
 			}
 			private void OnRead(object state)
 			{

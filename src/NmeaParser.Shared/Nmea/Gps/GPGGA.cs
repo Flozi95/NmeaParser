@@ -45,8 +45,8 @@ namespace NmeaParser.Nmea.Gps
 		protected override void LoadMessage(string[] message)
 		{
 			var time = message[0];
-			Latitude = NmeaMessage.StringToLatitude(message[1], message[2]);
-			Longitude = NmeaMessage.StringToLongitude(message[3], message[4]);
+			Latitude = StringToLatitude(message[1], message[2]);
+			Longitude = StringToLongitude(message[3], message[4]);
 			Quality =  (FixQuality)int.Parse(message[5], CultureInfo.InvariantCulture);
 			NumberOfSatellites = int.Parse(message[6], CultureInfo.InvariantCulture);
 			Hdop = double.Parse(message[7], CultureInfo.InvariantCulture);

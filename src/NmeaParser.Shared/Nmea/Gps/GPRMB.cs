@@ -36,7 +36,7 @@ namespace NmeaParser.Nmea.Gps
 		}
 		protected override void LoadMessage(string[] message)
 		{
-			Status = message[0] == "A" ? DataStatus.OK : Gprmb.DataStatus.Warning;
+			Status = message[0] == "A" ? DataStatus.OK : DataStatus.Warning;
 			double tmp;
 			if (double.TryParse(message[1], NumberStyles.Float, CultureInfo.InvariantCulture, out tmp))
 			{
@@ -52,8 +52,8 @@ namespace NmeaParser.Nmea.Gps
 				OriginWaypointID = int.Parse(message[3], CultureInfo.InvariantCulture);
 			if (message[3].Length > 0)
 				DestinationWaypointID = int.Parse(message[4], CultureInfo.InvariantCulture);
-			DestinationLatitude = NmeaMessage.StringToLatitude(message[5], message[6]);
-			DestinationLongitude = NmeaMessage.StringToLongitude(message[7], message[8]);
+			DestinationLatitude = StringToLatitude(message[5], message[6]);
+			DestinationLongitude = StringToLongitude(message[7], message[8]);
 			if (double.TryParse(message[9], NumberStyles.Float, CultureInfo.InvariantCulture, out tmp))
 				RangeToDestination = tmp;
 			else

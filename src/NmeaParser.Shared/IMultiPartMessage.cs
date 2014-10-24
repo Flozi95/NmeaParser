@@ -1,10 +1,11 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 
 namespace NmeaParser
 {
-	interface IMultiPartMessage : System.Collections.IEnumerable
+	interface IMultiPartMessage : IEnumerable
 	{
 		/// <summary>
 		/// Total number of messages of this type in this cycle

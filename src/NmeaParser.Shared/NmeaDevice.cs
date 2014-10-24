@@ -16,188 +16,234 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.IO;
-using Windows.Foundation;
+using NmeaParser.Nmea;
 
 namespace NmeaParser
 {
-	public abstract class NmeaDevice : IDisposable
-	{
-		private object m_lockObject = new object();
-		private string m_message = "";
-		private Stream m_stream;
-		System.Threading.CancellationTokenSource m_cts;
-		TaskCompletionSource<bool> closeTask;
+    public abstract class NmeaDevice : IDisposable
+    {
+        #region Fields
 
-		protected NmeaDevice()
-		{
-		}
-		public async Task OpenAsync()
-		{
-			lock (m_lockObject)
-			{
-				if (IsOpen) return;
-				IsOpen = true;
-			}
-			m_cts = new System.Threading.CancellationTokenSource();
-			m_stream = await OpenStreamAsync();
-			StartParser();
-			MultiPartMessageCache.Clear();
-		}
+        private readonly object _lock = new object();
+        private string _mMessage = "";
+        private Stream _stream;
+        private CancellationTokenSource _cancelToken;
+        private TaskCompletionSource<bool> _closeTask;
+        private readonly Dictionary<string, Dictionary<int, NmeaMessage>> _multiPartMessageCache = new Dictionary<string, Dictionary<int, NmeaMessage>>();
 
-		private void StartParser()
-		{
-			var token = m_cts.Token;
-			System.Diagnostics.Debug.WriteLine("Starting parser...");
-			var _ = Task.Run(async () =>
-			{
-				var stream = m_stream;
-				byte[] buffer = new byte[1024];
-				while (!token.IsCancellationRequested)
-				{
-					int readCount = 0;
-					try
-					{
-						readCount = await stream.ReadAsync(buffer, 0, 1024, token).ConfigureAwait(false);
-					}
-					catch { }
-					if (token.IsCancellationRequested)
-						break;
-					if (readCount > 0)
-					{
-						OnData(buffer.Take(readCount).ToArray());
-					}
-					await Task.Delay(10, token);
-				}
-				if (closeTask != null)
-					closeTask.SetResult(true);
-			});
-		}
+        #endregion
 
-		protected abstract Task<Stream> OpenStreamAsync();
-		public async Task CloseAsync()
-		{
-			if (m_cts != null)
-			{
-				closeTask = new TaskCompletionSource<bool>();
-				if (m_cts != null)
-					m_cts.Cancel();
-				m_cts = null;
-			}
-			await closeTask.Task;
-			await CloseStreamAsync(m_stream);
-			MultiPartMessageCache.Clear();
-			m_stream = null;
-			lock (m_lockObject)
-				IsOpen = false;
-		}
-		protected abstract Task CloseStreamAsync(Stream stream);
+        #region Properties
 
-		private void OnData(byte[] data)
-		{
-			var nmea = System.Text.Encoding.UTF8.GetString(data, 0, data.Length);
-			string line = null;
-			lock (m_lockObject)
-			{
-				m_message += nmea;
+        public bool IsOpen { get; private set; }
 
-				var lineEnd = m_message.IndexOf("\n");
-				if (lineEnd > -1)
-				{
-					line = m_message.Substring(0, lineEnd).Trim();
-					m_message = m_message.Substring(lineEnd + 1);
-				}
-			}
-			if (!string.IsNullOrEmpty(line))
-				ProcessMessage(line);
-		}
+        public event EventHandler<NmeaMessageReceivedEventArgs> MessageReceived;
 
-		private void ProcessMessage(string p)
-		{
-			try
-			{
-				var msg = NmeaParser.Nmea.NmeaMessage.Parse(p);
-				if (msg != null)
-					OnMessageReceived(msg);
-			}
-			catch { }
-		}
+        public event EventHandler<ExceptionEventArgs> ExceptionOccured;
 
-		private void OnMessageReceived(Nmea.NmeaMessage msg)
-		{
-			var args = new NmeaMessageReceivedEventArgs(msg);
-			if (msg is IMultiPartMessage)
-			{
-				args.IsMultiPart = true;
-				var multi = (IMultiPartMessage)msg;
-				if (MultiPartMessageCache.ContainsKey(msg.MessageType))
-				{
-					var dic = MultiPartMessageCache[msg.MessageType];
-					if (dic.ContainsKey(multi.MessageNumber - 1) && !dic.ContainsKey(multi.MessageNumber))
-					{
-						dic[multi.MessageNumber] = msg;
-					}
-					else //Something is out of order. Clear cache
-						MultiPartMessageCache.Remove(msg.MessageType);
-				}
-				else if (multi.MessageNumber == 1)
-				{
-					MultiPartMessageCache[msg.MessageType] = new Dictionary<int, Nmea.NmeaMessage>(multi.TotalMessages);
-					MultiPartMessageCache[msg.MessageType][1] = msg;
-				}
-				if (MultiPartMessageCache.ContainsKey(msg.MessageType))
-				{
-					var dic = MultiPartMessageCache[msg.MessageType];
-					if (dic.Count == multi.TotalMessages) //We have a full list
-					{
-						MultiPartMessageCache.Remove(msg.MessageType);
-						args.MessageParts = dic.Values.ToArray();
-					}
-				}
-			}
+        #endregion
 
-			if (MessageReceived != null)
-			{
-				MessageReceived(this, args);
-			}
-		}
+        #region Abstract Methods
 
-		private Dictionary<string, Dictionary<int, Nmea.NmeaMessage>> MultiPartMessageCache
-			= new Dictionary<string,Dictionary<int,Nmea.NmeaMessage>>();
+        protected abstract Task<Stream> OpenStreamAsync();
 
-		public event EventHandler<NmeaMessageReceivedEventArgs> MessageReceived;
+        protected abstract Task CloseStreamAsync(Stream stream);
 
-		public void Dispose()
-		{
-			Dispose(true);
-		}
-		protected virtual void Dispose(bool force)
-		{
-			if (m_stream != null)
-			{
-				if (m_cts != null)
-				{
-					m_cts.Cancel();
-					m_cts = null;
-				}
-				CloseStreamAsync(m_stream);
-				m_stream = null;
-			}
-		}
+        #endregion
 
-		public bool IsOpen { get; private set; }
-	}
+        #region Methods
 
-	public sealed class NmeaMessageReceivedEventArgs : EventArgs
-	{
-		internal NmeaMessageReceivedEventArgs(Nmea.NmeaMessage message) {
-			Message = message;
-		}
-		public Nmea.NmeaMessage Message { get; private set; }
-		public bool IsMultiPart { get; internal set; }
-		public Nmea.NmeaMessage[] MessageParts { get; internal set; }
-	}
+        public async Task CloseAsync()
+        {
+            if (_cancelToken != null)
+            {
+                _closeTask = new TaskCompletionSource<bool>();
+                if (_cancelToken != null)
+                {
+                    _cancelToken.Cancel();
+                }
+                _cancelToken = null;
+            }
+            await _closeTask.Task;
+            await CloseStreamAsync(_stream);
+            _multiPartMessageCache.Clear();
+            _stream = null;
+            lock (_lock)
+                IsOpen = false;
+        }
+
+        public async Task OpenAsync()
+        {
+            lock (_lock)
+            {
+                if (IsOpen) return;
+                IsOpen = true;
+            }
+            _cancelToken = new CancellationTokenSource();
+            _stream = await OpenStreamAsync();
+            StartParser();
+            _multiPartMessageCache.Clear();
+        }
+
+        private void StartParser()
+        {
+            var token = _cancelToken.Token;
+            Debug.WriteLine("Starting parser...");
+            var _ = Task.Run(async () =>
+            {
+                var stream = _stream;
+                byte[] buffer = new byte[1024];
+                while (!token.IsCancellationRequested)
+                {
+                    int readCount = 0;
+                    try
+                    {
+                        readCount = await stream.ReadAsync(buffer, 0, 1024, token).ConfigureAwait(false);
+                    }
+                    catch (Exception exception)
+                    {
+                        if (ExceptionOccured != null)
+                        {
+                            ExceptionOccured(this, new ExceptionEventArgs(exception));
+                        }
+                    }
+
+                    if (token.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    if (readCount > 0)
+                    {
+                        OnData(buffer.Take(readCount).ToArray());
+                    }
+                    await Task.Delay(10, token);
+                }
+                if (_closeTask != null)
+                    _closeTask.SetResult(true);
+            });
+        }
+
+        private void OnData(byte[] data)
+        {
+            var nmea = Encoding.UTF8.GetString(data, 0, data.Length);
+            string line = null;
+            lock (_lock)
+            {
+                _mMessage += nmea;
+
+                var lineEnd = _mMessage.IndexOf("\n");
+                if (lineEnd > -1)
+                {
+                    line = _mMessage.Substring(0, lineEnd).Trim();
+                    _mMessage = _mMessage.Substring(lineEnd + 1);
+                }
+            }
+            if (!string.IsNullOrEmpty(line))
+                ProcessMessage(line);
+        }
+
+        private void ProcessMessage(string p)
+        {
+            try
+            {
+                var msg = NmeaMessage.Parse(p);
+                if (msg != null)
+                {
+                    OnMessageReceived(msg);
+                }
+            }
+            catch { }
+        }
+
+        private void OnMessageReceived(NmeaMessage msg)
+        {
+            var args = new NmeaMessageReceivedEventArgs(msg);
+            if (msg is IMultiPartMessage)
+            {
+                args.IsMultiPart = true;
+                var multi = (IMultiPartMessage)msg;
+                if (_multiPartMessageCache.ContainsKey(msg.MessageType))
+                {
+                    var dic = _multiPartMessageCache[msg.MessageType];
+                    if (dic.ContainsKey(multi.MessageNumber - 1) && !dic.ContainsKey(multi.MessageNumber))
+                    {
+                        dic[multi.MessageNumber] = msg;
+                    }
+                    else //Something is out of order. Clear cache
+                        _multiPartMessageCache.Remove(msg.MessageType);
+                }
+                else if (multi.MessageNumber == 1)
+                {
+                    _multiPartMessageCache[msg.MessageType] = new Dictionary<int, NmeaMessage>(multi.TotalMessages);
+                    _multiPartMessageCache[msg.MessageType][1] = msg;
+                }
+                if (_multiPartMessageCache.ContainsKey(msg.MessageType))
+                {
+                    var dic = _multiPartMessageCache[msg.MessageType];
+                    if (dic.Count == multi.TotalMessages) //We have a full list
+                    {
+                        _multiPartMessageCache.Remove(msg.MessageType);
+                        args.MessageParts = dic.Values.ToArray();
+                    }
+                }
+            }
+
+            if (MessageReceived != null)
+            {
+                MessageReceived(this, args);
+            }
+        }
+
+        #endregion
+
+        #region IDisposable - Implementation
+
+        public void Dispose()
+        {
+            Dispose(true);
+        }
+
+        protected virtual void Dispose(bool force)
+        {
+            if (_stream != null)
+            {
+                if (_cancelToken != null)
+                {
+                    _cancelToken.Cancel();
+                    _cancelToken = null;
+                }
+                CloseStreamAsync(_stream);
+                _stream = null;
+            }
+        }
+
+        #endregion
+    }
+
+    public class ExceptionEventArgs : EventArgs
+    {
+        internal ExceptionEventArgs(Exception exception)
+        {
+            Exception = exception;
+        }
+        public Exception Exception { get; private set; }
+
+    }
+
+    public sealed class NmeaMessageReceivedEventArgs : EventArgs
+    {
+        internal NmeaMessageReceivedEventArgs(NmeaMessage message)
+        {
+            Message = message;
+        }
+        public NmeaMessage Message { get; private set; }
+        public bool IsMultiPart { get; internal set; }
+        public NmeaMessage[] MessageParts { get; internal set; }
+    }
 }

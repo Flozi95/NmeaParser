@@ -38,8 +38,8 @@ namespace NmeaParser.Nmea.Gps
 								   int.Parse(message[0].Substring(2, 2)),
 								   int.Parse(message[0].Substring(4, 2)), DateTimeKind.Utc);
 			Active = (message[1] == "A");
-			Latitude = NmeaMessage.StringToLatitude(message[2], message[3]);
-			Longitude = NmeaMessage.StringToLongitude(message[4], message[5]);
+			Latitude = StringToLatitude(message[2], message[3]);
+			Longitude = StringToLongitude(message[4], message[5]);
 			Speed = double.Parse(message[6], CultureInfo.InvariantCulture);
 			Course = double.Parse(message[7], CultureInfo.InvariantCulture);
 			MagneticVariation = double.Parse(message[9], CultureInfo.InvariantCulture);

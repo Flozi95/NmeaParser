@@ -15,6 +15,7 @@
 //
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -43,7 +44,7 @@ namespace NmeaParser.Nmea.Gps
 				else
 					svs.Add(new SatelitteVehicle(message, i));
 			}
-			this.SVs = svs.ToArray();
+			SVs = svs.ToArray();
 		}
 
 		/// <summary>
@@ -72,7 +73,7 @@ namespace NmeaParser.Nmea.Gps
 				yield return sv;
 		}
 
-		System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+		IEnumerator IEnumerable.GetEnumerator()
 		{
 			return GetEnumerator();
 		}

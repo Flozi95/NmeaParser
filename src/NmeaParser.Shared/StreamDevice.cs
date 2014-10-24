@@ -27,7 +27,7 @@ namespace NmeaParser
 	/// </summary>
     public class StreamDevice : NmeaDevice
     {
-		System.IO.Stream m_stream;
+		Stream m_stream;
 		public StreamDevice(Stream stream) : base()
 		{
 			m_stream = stream;
@@ -38,7 +38,7 @@ namespace NmeaParser
 			return Task.FromResult(m_stream);
 		}
 
-		protected override Task CloseStreamAsync(System.IO.Stream stream)
+		protected override Task CloseStreamAsync(Stream stream)
 		{
 			return Task.FromResult(true); //do nothing
 		}
