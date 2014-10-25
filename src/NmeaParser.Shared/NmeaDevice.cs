@@ -34,7 +34,7 @@ namespace NmeaParser
         private string _mMessage = "";
         private Stream _stream;
         private CancellationTokenSource _cancelToken;
-        private TaskCompletionSource<bool> _closeTask;
+        private TaskCompletionSource<bool> _completionSource;
         private readonly Dictionary<string, Dictionary<int, NmeaMessage>> _multiPartMessageCache = new Dictionary<string, Dictionary<int, NmeaMessage>>();
 
         #endregion
@@ -63,14 +63,14 @@ namespace NmeaParser
         {
             if (_cancelToken != null)
             {
-                _closeTask = new TaskCompletionSource<bool>();
+                _completionSource = new TaskCompletionSource<bool>();
                 if (_cancelToken != null)
                 {
                     _cancelToken.Cancel();
                 }
                 _cancelToken = null;
             }
-            await _closeTask.Task;
+            await _completionSource.Task;
             await CloseStreamAsync(_stream);
             _multiPartMessageCache.Clear();
             _stream = null;
@@ -108,10 +108,15 @@ namespace NmeaParser
                     }
                     catch (Exception exception)
                     {
+                        _cancelToken.Cancel();
+                        IsOpen = false;
+                        if (_completionSource != null)
+                            _completionSource.SetResult(true);
                         if (ExceptionOccured != null)
                         {
                             ExceptionOccured(this, new ExceptionEventArgs(exception));
                         }
+                        return;
                     }
 
                     if (token.IsCancellationRequested)
@@ -124,8 +129,8 @@ namespace NmeaParser
                     }
                     await Task.Delay(10, token);
                 }
-                if (_closeTask != null)
-                    _closeTask.SetResult(true);
+                if (_completionSource != null)
+                    _completionSource.SetResult(true);
             });
         }
 
